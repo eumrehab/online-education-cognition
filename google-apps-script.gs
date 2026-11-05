@@ -1,5 +1,5 @@
 // 인지활동지도사 전용 새 스프레드시트 ID만 입력하세요.
-const SPREADSHEET_ID = "";
+const SPREADSHEET_ID = "1s6XR3np6P_IQiJNm508K8llosgSXiInKU8hpQaIrYl8";
 
 function doGet(e) {
   const callback = String(e && e.parameter.callback || "");

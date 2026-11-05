@@ -1,7 +1,7 @@
 const CONFIG = {
   passingScore: 80,
   // Google Apps Script를 배포한 뒤 발급된 /exec 주소를 입력하세요.
-  resultsEndpoint: "",
+  resultsEndpoint: "https://script.google.com/macros/s/AKfycby46I1tYKekRChxO90cKI1v_FT0YqblYQDC3gdyBcMla8J5XIrfVIfnCyAOmEEb0_x_4w/exec",
   // 강의명과 영상은 새 과정 자료가 준비되면 등록합니다.
   lessons: Array.from({ length: 8 }, (_, i) => ({
     id: i + 1,

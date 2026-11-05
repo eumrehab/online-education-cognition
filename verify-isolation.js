@@ -11,7 +11,7 @@ for (const source of [app, html, backend]) {
 }
 assert(!fs.existsSync(path.join(root, "videos")), "Old videos must not be copied");
 assert(!fs.existsSync(path.join(root, "exam-assets")), "Old exam images must not be copied");
-assert(/const SPREADSHEET_ID = ""/.test(backend));
+assert(/const SPREADSHEET_ID = "1s6XR3np6P_IQiJNm508K8llosgSXiInKU8hpQaIrYl8"/.test(backend));
 const storageAccess = [];
 const elements = new Map();
 const element = id => {
@@ -24,7 +24,11 @@ const element = id => {
 };
 const context = vm.createContext({
   window: { scrollTo() {}, EXAM_QUESTIONS: [] },
-  document: { getElementById: element, addEventListener() {}, querySelector: element, querySelectorAll() { return []; } },
+  document: {
+    getElementById: element, addEventListener() {}, querySelector: element, querySelectorAll() { return []; },
+    createElement: element,
+    head: { appendChild(script) { assert(script.src.startsWith('https://script.google.com/macros/s/AKfycby46I1tYKekRChxO90cKI1v_FT0YqblYQDC3gdyBcMla8J5XIrfVIfnCyAOmEEb0_x_4w/exec?')); } }
+  },
   localStorage: {
     getItem(key) { storageAccess.push(key); assert(key.startsWith("cognition-edu-")); return null; },
     setItem(key) { assert(key.startsWith("cognition-edu-")); },
@@ -36,10 +40,12 @@ const context = vm.createContext({
 });
 vm.runInContext(app, context);
 (async () => {
-  assert.equal(vm.runInContext("CONFIG.resultsEndpoint", context), "");
+  assert.equal(vm.runInContext("CONFIG.resultsEndpoint", context), "https://script.google.com/macros/s/AKfycby46I1tYKekRChxO90cKI1v_FT0YqblYQDC3gdyBcMla8J5XIrfVIfnCyAOmEEb0_x_4w/exec");
   assert.equal(vm.runInContext("CONFIG.lessons.length", context), 8);
   assert(vm.runInContext("CONFIG.lessons.every(lesson => lesson.src === '')", context));
   assert.equal(vm.runInContext("CONFIG.questions.length", context), 0);
+  // 연동 설정이 누락되었을 때 임의 계정을 허용하지 않는지 별도로 검사합니다.
+  vm.runInContext('CONFIG.resultsEndpoint = "";', context);
   const login = await vm.runInContext("authenticateStudent({ studentId: '0000', name: '테스트' })", context);
   const admin = await vm.runInContext("authenticateAdmin({ adminId: 'test', password: 'test' })", context);
   assert.equal(login.ok, false);
@@ -47,5 +53,5 @@ vm.runInContext(app, context);
   vm.runInContext("renderProgress(); loadLesson(0);", context);
   assert.equal(element("startExamBtn").disabled, true);
   assert(storageAccess.length > 0);
-  console.log("PASS: independent storage, no production endpoint or spreadsheet, no videos/exam assets, logins fail closed, empty exam blocked, empty player loads.");
+  console.log("PASS: cognition-only endpoint and spreadsheet, independent storage, no legacy videos/exam assets, disabled integration fails closed, empty exam blocked, empty player loads.");
 })().catch(error => { console.error(error); process.exitCode = 1; });
