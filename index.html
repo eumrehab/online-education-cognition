@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="인지활동지도사 온라인 교육원" />
+  <title>인지활동지도사 온라인 교육원</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./course-cards.css" />
+  <link rel="stylesheet" href="./login-schedule.css" />
+  <link rel="stylesheet" href="./exam-timer.css" />
+  <link rel="stylesheet" href="./admin.css?v=cognition-1" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="교육원 홈">
+      <span class="brand-mark">온</span>
+      <span><b>인지활동지도사</b><small>온라인 교육원</small></span>
+    </a>
+    <div id="userArea" class="user-area hidden">
+      <span id="userName"></span>
+      <button id="logoutBtn" class="text-button" type="button">로그아웃</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="loginView" class="login-view">
+      <div class="login-copy">
+        <span class="eyebrow">COURSE SCHEDULE</span>
+        <h1 class="schedule-heading">인지활동지도사 교육 과정</h1>
+        <p>8강의 교육을 이수해야 자격 시험 응시가 가능합니다.</p>
+        <div class="schedule-table-wrap">
+          <table class="schedule-table">
+            <thead><tr><th>차시</th><th>강의명</th></tr></thead>
+            <tbody>
+              <tr><td>1강</td><td>인지활동지도사 1강 (준비 중)</td></tr>
+              <tr><td>2강</td><td>인지활동지도사 2강 (준비 중)</td></tr>
+              <tr><td>3강</td><td>인지활동지도사 3강 (준비 중)</td></tr>
+              <tr><td>4강</td><td>인지활동지도사 4강 (준비 중)</td></tr>
+              <tr><td>5강</td><td>인지활동지도사 5강 (준비 중)</td></tr>
+              <tr><td>6강</td><td>인지활동지도사 6강 (준비 중)</td></tr>
+              <tr><td>7강</td><td>인지활동지도사 7강 (준비 중)</td></tr>
+              <tr><td>8강</td><td>인지활동지도사 8강 (준비 중)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <form id="loginForm" class="login-card">
+        <div>
+          <span class="step-label">수강생 로그인</span>
+          <h2>교육을 시작해 볼까요?</h2>
+          <p>현재 교육과정을 준비하고 있습니다. 수강 등록은 추후 안내해 드립니다.</p>
+        </div>
+        <label>학번<input id="studentId" inputmode="numeric" autocomplete="username" placeholder="학번을 입력하세요" required /></label>
+        <label>이름<input id="studentName" autocomplete="name" placeholder="이름을 입력하세요" required /></label>
+        <p id="loginError" class="error" role="alert"></p>
+        <button class="primary-button" type="submit">로그인</button>
+        <p class="contact-info">교육 문의 <a href="tel:0553203799">055-320-3799</a></p>
+        <button id="showAdminLogin" class="admin-entry-button" type="button">기관 관리자 로그인</button>
+      </form>
+    </section>
+
+    <section id="adminLoginView" class="admin-login-view hidden">
+      <form id="adminLoginForm" class="login-card admin-login-card">
+        <div><span class="step-label">기관 관리자</span><h2>관리자 로그인</h2><p>등록된 기관 관리자 계정으로 로그인해 주세요.</p></div>
+        <label>관리자 아이디<input id="adminId" autocomplete="username" required /></label>
+        <label>비밀번호<input id="adminPassword" type="password" autocomplete="current-password" required /></label>
+        <p id="adminLoginError" class="error" role="alert"></p>
+        <button class="primary-button" type="submit">관리자 로그인</button>
+        <button id="backToStudentLogin" class="secondary-button" type="button">수강생 로그인으로 돌아가기</button>
+      </form>
+    </section>
+
+    <section id="adminDashboardView" class="app-view admin-dashboard hidden">
+      <div class="admin-heading"><div><span class="eyebrow">ADMIN DASHBOARD</span><h1>수강생 진도 현황</h1><p>Google Sheet에 저장된 최신 수강 현황입니다.</p></div><button id="refreshAdminData" class="secondary-button" type="button">새로고침</button></div>
+      <div class="admin-summary" aria-label="진도 요약">
+        <article><span>전체 수강생</span><strong id="adminTotalStudents">0명</strong></article>
+        <article><span>수강 완료</span><strong id="adminCompletedStudents">0명</strong></article>
+        <article><span>평균 진도율</span><strong id="adminAverageProgress">0%</strong></article>
+      </div>
+      <p id="adminDataMessage" class="admin-data-message" role="status"></p>
+      <div class="admin-table-wrap">
+        <table class="admin-progress-table">
+          <thead><tr><th>학번</th><th>이름</th><th>전체</th><th>완료</th><th>1강</th><th>2강</th><th>3강</th><th>4강</th><th>5강</th><th>6강</th><th>7강</th><th>8강</th><th>최근 접속</th></tr></thead>
+          <tbody id="adminProgressRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="classroomView" class="app-view hidden">
+      <div class="page-heading">
+        <div><span class="eyebrow">MY CLASSROOM</span><h1>나의 강의실</h1><p>총 8개의 강의를 모두 수강하면 시험에 응시할 수 있습니다.</p></div>
+        <div class="overall-card"><span>전체 수강률</span><strong id="overallPercent">0%</strong><div class="progress"><i id="overallBar"></i></div><small id="overallCount">0 / 8강 완료</small></div>
+      </div>
+
+      <section class="course-catalog" aria-labelledby="courseCatalogTitle">
+        <div class="catalog-heading"><div><span class="step-label">COURSE LIST</span><h2 id="courseCatalogTitle">교육 과정</h2></div><p>수강할 강의를 선택해 주세요.</p></div>
+        <nav id="lessonList" class="lesson-list" aria-label="강의 목록"></nav>
+      </section>
+
+      <section class="exam-gate">
+        <div class="exam-icon">✓</div>
+        <div><span class="step-label">FINAL TEST</span><h2>교육과정 평가시험</h2><p id="examGateMessage">8개 강의를 모두 완료하면 시험에 응시할 수 있습니다.</p></div>
+        <button id="startExamBtn" class="primary-button" type="button" disabled>시험 응시하기</button>
+      </section>
+    </section>
+
+    <section id="lessonView" class="app-view lesson-view hidden">
+      <div class="lesson-page-nav">
+        <button id="returnToClassroom" class="secondary-button back-button" type="button"><span aria-hidden="true">←</span> 나의 강의실로 돌아가기</button>
+        <span id="lessonModeBadge" class="lesson-mode-badge">학습 중</span>
+      </div>
+      <div id="playerSection" class="classroom-layout player-layout">
+        <article class="player-panel">
+          <div class="video-shell">
+            <video id="lessonVideo" preload="metadata" playsinline controls controlsList="nodownload noplaybackrate"></video>
+            <div id="videoEmpty" class="video-empty hidden"><span>▶</span><p>영상 파일을 준비하고 있습니다.</p></div>
+          </div>
+          <div class="lesson-meta">
+            <div><span id="lessonNumber" class="step-label">1강</span><h2 id="lessonTitle"></h2><p id="lessonDescription"></p></div>
+            <div class="lesson-progress"><strong id="lessonPercent">0%</strong><span>유효 수강률</span></div>
+          </div>
+          <div class="notice"><b>진도율 안내</b><p>정속(1.0배속)으로 실제 재생한 구간만 인정됩니다. 일시정지, 빨리감기, 건너뛰기 시간은 진도에 포함되지 않습니다.</p></div>
+          <div class="lesson-actions"><button id="prevLesson" class="secondary-button" type="button">이전 강의</button><button id="nextLesson" class="secondary-button" type="button">다음 강의</button></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="examView" class="app-view narrow hidden">
+      <div class="exam-header"><span class="eyebrow">FINAL TEST</span><h1>인지활동지도사 자격검정 시험</h1><p>시험 시간은 60분입니다. 모든 문항에 답해야 직접 제출할 수 있으며, 시간이 끝나면 작성한 답안이 자동 제출됩니다.</p><div class="exam-timer" aria-live="polite"><span>남은 시간</span><strong id="examTimer">60:00</strong></div></div>
+      <form id="examForm" class="question-list"></form>
+    </section>
+
+    <section id="completeView" class="complete-view hidden">
+      <div class="complete-card"><div class="complete-mark">✓</div><span class="eyebrow">SUBMITTED</span><h1>시험이 정상적으로<br />제출되었습니다.</h1><p>교육과정을 이수하시느라 고생 많으셨습니다.<br />시험 결과는 확인 후 추후 안내해 드리겠습니다.</p><div id="submissionInfo" class="submission-info"></div><button id="backToClassroom" class="secondary-button" type="button">강의실로 돌아가기</button></div>
+    </section>
+
+  </main>
+  <footer>© 2026 인지활동지도사 온라인 교육원</footer>
+  <script src="./exam-questions.js?v=cognition-1"></script>
+  <script src="./app.js?v=cognition-1"></script>
+</body>
+</html>

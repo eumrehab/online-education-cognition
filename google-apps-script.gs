@@ -1,0 +1,392 @@
+// 인지활동지도사 전용 새 스프레드시트 ID만 입력하세요.
+const SPREADSHEET_ID = "";
+
+function doGet(e) {
+  const callback = String(e && e.parameter.callback || "");
+  let response = { ok: true };
+  if (e && e.parameter.action === "settings") {
+    const book = SpreadsheetApp.openById(SPREADSHEET_ID);
+    response.settings = readLessonSettings(getOrCreateSettingsSheet(book));
+  }
+  const json = JSON.stringify(response);
+  if (callback && /^[A-Za-z_$][0-9A-Za-z_$]*$/.test(callback)) {
+    return ContentService.createTextOutput(`${callback}(${json});`).setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+
+  try {
+    const data = JSON.parse(e.parameter.payload || "{}");
+    const book = SpreadsheetApp.openById(SPREADSHEET_ID);
+    if (data.eventType === "login") return authenticateStudent(book, data);
+    if (data.eventType === "admin_login") return authenticateAdmin(book, data);
+    if (data.eventType === "admin_progress") return loadAdminProgress(book, data);
+    const identity = verifySession(data.authToken);
+    if (!identity) throw new Error("로그인 유효시간이 만료되었습니다. 다시 로그인해 주세요.");
+    data.studentId = identity.studentId;
+    data.name = identity.name;
+    upsertStudent(book.getSheetByName("수강생 현황"), data);
+    upsertProgress(book.getSheetByName("강의별 진도"), data);
+    if (data.eventType === "exam_submit") upsertExam(book.getSheetByName("시험 결과"), data);
+
+    return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, message: error.message }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function authenticateStudent(book, data) {
+  const nonce = String(data.nonce || "");
+  try {
+    const cache = CacheService.getScriptCache();
+    const attemptKey = loginAttemptKey(data.studentId);
+    const attempts = Number(cache.get(attemptKey) || 0);
+    if (attempts >= 10) throw new Error("로그인 시도가 너무 많습니다. 10분 후 다시 시도해 주세요.");
+    const sheet = findSheetByNormalizedName(book, "수강생명단");
+    if (!sheet || sheet.getLastRow() < 2) throw new Error("수강생 명단이 등록되지 않았습니다.");
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getDisplayValues();
+    const row = rows.find(value => String(value[0]).trim() === String(data.studentId).trim()
+      && String(value[1]).trim() === String(data.name).trim()
+      && String(value[3] || "").replace(/\s/g, "") === "사용");
+    if (!row) {
+      cache.put(attemptKey, String(attempts + 1), 600);
+      return loginResponse({ ok: false, nonce, message: "등록된 수강생 정보와 일치하지 않습니다." });
+    }
+    const token = Utilities.getUuid() + Utilities.getUuid();
+    const identity = { studentId: String(row[0]).trim(), name: String(row[1]).trim() };
+    const lessonProgress = readStudentProgress(book.getSheetByName("강의별 진도"), identity.studentId);
+    cache.remove(attemptKey);
+    cache.put("session_" + token, JSON.stringify(identity), 21600);
+    return loginResponse({
+      ok: true,
+      nonce,
+      authToken: token,
+      authExpiresAt: Date.now() + 21600000,
+      hasProgressRecord: lessonProgress !== null,
+      lessonProgress: lessonProgress || Array(8).fill(0),
+      hasExamRecord: hasStudentRecord(book.getSheetByName("시험 결과"), identity.studentId),
+      ...identity
+    });
+  } catch (error) {
+    return loginResponse({ ok: false, nonce, message: error.message });
+  }
+}
+
+function findSheetByNormalizedName(book, normalizedName) {
+  return book.getSheets().find(sheet => sheet.getName().replace(/\s/g, "") === normalizedName) || null;
+}
+
+function hasStudentRecord(sheet, studentId) {
+  if (!sheet || sheet.getLastRow() < 2) return false;
+  const ids = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues().flat();
+  return ids.includes(String(studentId));
+}
+
+function readStudentProgress(sheet, studentId) {
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+  const row = rows.find(value => String(value[0]).trim() === String(studentId).trim());
+  if (!row) return null;
+  return row.slice(2, 10).map(value => {
+    const numeric = Number(value || 0);
+    const percent = numeric <= 1 ? numeric * 100 : numeric;
+    return Math.max(0, Math.min(100, Math.round(percent)));
+  });
+}
+
+function loginAttemptKey(studentId) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(studentId || ""));
+  return "login_attempt_" + Utilities.base64EncodeWebSafe(digest).slice(0, 32);
+}
+
+function setupStudentRosterSheet() {
+  const book = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = book.getSheetByName("수강생 명단");
+  if (!sheet) sheet = book.insertSheet("수강생 명단");
+  sheet.getRange(1, 1, 1, 5).setValues([["학번", "이름", "비고", "상태", "관리자 화면"]]);
+  sheet.getRange("A:C").setNumberFormat("@");
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 5);
+}
+
+function verifySession(token) {
+  if (!token) return null;
+  const saved = CacheService.getScriptCache().get("session_" + String(token));
+  if (!saved) return null;
+  try { return JSON.parse(saved); } catch (_) { return null; }
+}
+
+function loginResponse(data) {
+  data.source = "cognition-course-login";
+  return secureHtmlResponse(data);
+}
+
+function adminResponse(data) {
+  data.source = "cognition-course-admin";
+  return secureHtmlResponse(data);
+}
+
+function secureHtmlResponse(data) {
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
+  return HtmlService.createHtmlOutput("<script>window.top.postMessage(" + json + ", '*');</script>")
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function hashAdminPassword(password, salt) {
+  const digest = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.SHA_256,
+    String(salt) + ":" + String(password),
+    Utilities.Charset.UTF_8
+  );
+  return digest.map(value => ((value + 256) % 256).toString(16).padStart(2, "0")).join("");
+}
+
+function setupAdminAccountsSheet() {
+  const book = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = findSheetByNormalizedName(book, "관리자계정");
+  if (!sheet) sheet = book.insertSheet("관리자 계정");
+  sheet.getRange(1, 1, 1, 5).setValues([["관리자 아이디", "관리자명", "비밀번호 해시", "솔트", "상태"]]);
+  sheet.getRange("A:E").setNumberFormat("@");
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 5);
+}
+
+function registerAdminAccount(adminId, password, name) {
+  if (!adminId || !password || !name) throw new Error("관리자 아이디, 비밀번호, 관리자명을 모두 입력해 주세요.");
+  const book = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = findSheetByNormalizedName(book, "관리자계정");
+  if (!sheet) {
+    setupAdminAccountsSheet();
+    sheet = findSheetByNormalizedName(book, "관리자계정");
+  }
+  const ids = sheet.getLastRow() < 2 ? [] : sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues().flat();
+  const found = ids.indexOf(String(adminId).trim());
+  const row = found === -1 ? sheet.getLastRow() + 1 : found + 2;
+  const salt = Utilities.getUuid();
+  sheet.getRange(row, 1, 1, 5).setValues([[
+    String(adminId).trim(), String(name).trim(), hashAdminPassword(password, salt), salt, "사용"
+  ]]);
+}
+
+/**
+ * Apps Script의 '스크립트 속성'에 아래 3개 값을 등록한 뒤 한 번 실행합니다.
+ * ADMIN_SETUP_ID / ADMIN_SETUP_PASSWORD / ADMIN_SETUP_NAME
+ * 계정 생성 후 비밀번호가 남지 않도록 해당 속성은 자동으로 삭제됩니다.
+ */
+function createAdminAccountFromScriptProperties() {
+  const properties = PropertiesService.getScriptProperties();
+  const adminId = String(properties.getProperty("ADMIN_SETUP_ID") || "").trim();
+  const password = String(properties.getProperty("ADMIN_SETUP_PASSWORD") || "");
+  const name = String(properties.getProperty("ADMIN_SETUP_NAME") || "").trim();
+
+  if (!adminId || !password || !name) {
+    throw new Error("스크립트 속성에 ADMIN_SETUP_ID, ADMIN_SETUP_PASSWORD, ADMIN_SETUP_NAME을 모두 등록해 주세요.");
+  }
+
+  registerAdminAccount(adminId, password, name);
+  properties.deleteProperty("ADMIN_SETUP_ID");
+  properties.deleteProperty("ADMIN_SETUP_PASSWORD");
+  properties.deleteProperty("ADMIN_SETUP_NAME");
+  return { ok: true, adminId };
+}
+
+function authenticateAdmin(book, data) {
+  const nonce = String(data.nonce || "");
+  try {
+    const cache = CacheService.getScriptCache();
+    const attemptKey = loginAttemptKey("admin:" + String(data.adminId || ""));
+    const attempts = Number(cache.get(attemptKey) || 0);
+    if (attempts >= 10) throw new Error("로그인 시도가 너무 많습니다. 10분 후 다시 시도해 주세요.");
+    const sheet = findSheetByNormalizedName(book, "관리자계정");
+    if (!sheet || sheet.getLastRow() < 2) throw new Error("등록된 관리자 계정이 없습니다.");
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getDisplayValues();
+    const adminId = String(data.adminId || "").trim();
+    const row = rows.find(value => String(value[0]).trim() === adminId
+      && String(value[4] || "").replace(/\s/g, "") === "사용"
+      && hashAdminPassword(data.password || "", value[3]) === String(value[2]).trim());
+    if (!row) {
+      cache.put(attemptKey, String(attempts + 1), 600);
+      return adminResponse({ ok: false, nonce, message: "관리자 정보가 일치하지 않습니다." });
+    }
+    const token = Utilities.getUuid() + Utilities.getUuid();
+    const identity = { adminId: String(row[0]).trim(), name: String(row[1]).trim() };
+    cache.remove(attemptKey);
+    cache.put("admin_session_" + token, JSON.stringify(identity), 21600);
+    return adminResponse({ ok: true, nonce, authToken: token, authExpiresAt: Date.now() + 21600000, ...identity });
+  } catch (error) {
+    return adminResponse({ ok: false, nonce, message: error.message });
+  }
+}
+
+function verifyAdminSession(token) {
+  if (!token) return null;
+  const saved = CacheService.getScriptCache().get("admin_session_" + String(token));
+  if (!saved) return null;
+  try { return JSON.parse(saved); } catch (_) { return null; }
+}
+
+function loadAdminProgress(book, data) {
+  const nonce = String(data.nonce || "");
+  try {
+    const admin = verifyAdminSession(data.authToken);
+    if (!admin) return adminResponse({ ok: false, nonce, expired: true, message: "관리자 로그인 시간이 만료되었습니다." });
+    const rosterSheet = findSheetByNormalizedName(book, "수강생명단");
+    const progressSheet = book.getSheetByName("강의별 진도");
+    const examSheet = book.getSheetByName("시험 결과");
+    const progressMap = {};
+    if (progressSheet && progressSheet.getLastRow() >= 2) {
+      progressSheet.getRange(2, 1, progressSheet.getLastRow() - 1, 12).getValues().forEach(row => {
+        const studentId = String(row[0]).trim();
+        const lessonProgress = row.slice(2, 10).map(value => Math.max(0, Math.min(100, Math.round(Number(value || 0) * 100))));
+        progressMap[studentId] = {
+          lessonProgress,
+          overallProgress: Math.max(0, Math.min(100, Math.round(Number(row[10] || 0) * 100))),
+          completedLessons: lessonProgress.filter(value => value >= 100).length,
+          lastAccessAt: row[11] instanceof Date ? Utilities.formatDate(row[11], Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm") : String(row[11] || "")
+        };
+      });
+    }
+    const examMap = {};
+    if (examSheet && examSheet.getLastRow() >= 2) {
+      const examColumnCount = Math.max(4, examSheet.getLastColumn());
+      examSheet.getRange(2, 1, examSheet.getLastRow() - 1, examColumnCount).getDisplayValues().forEach(row => {
+        examMap[String(row[0]).trim()] = row[2] === "제출 완료" ? (row[row.length - 1] || "제출 완료") : "미제출";
+      });
+    }
+    const rosterRows = !rosterSheet || rosterSheet.getLastRow() < 2 ? [] : rosterSheet.getRange(2, 1, rosterSheet.getLastRow() - 1, 5).getDisplayValues();
+    const hiddenValues = ["숨김", "비공개", "제외"];
+    const rows = rosterRows.filter(row => {
+      const status = String(row[3] || "").replace(/\s/g, "");
+      const adminVisibility = String(row[4] || "").replace(/\s/g, "");
+      return status === "사용" && !hiddenValues.includes(adminVisibility);
+    }).map(row => {
+      const studentId = String(row[0]).trim();
+      const progress = progressMap[studentId] || { lessonProgress: Array(8).fill(0), overallProgress: 0, completedLessons: 0, lastAccessAt: "" };
+      return { studentId, name: String(row[1]).trim(), examStatus: examMap[studentId] || "미제출", ...progress };
+    });
+    const totalStudents = rows.length;
+    const completedStudents = rows.filter(row => row.completedLessons === 8).length;
+    const examSubmitted = rows.filter(row => row.examStatus !== "미제출").length;
+    const averageProgress = totalStudents ? Math.round(rows.reduce((sum, row) => sum + row.overallProgress, 0) / totalStudents) : 0;
+    return adminResponse({ ok: true, nonce, rows, summary: { totalStudents, completedStudents, averageProgress, examSubmitted } });
+  } catch (error) {
+    return adminResponse({ ok: false, nonce, message: error.message });
+  }
+}
+
+function getOrCreateSettingsSheet(book) {
+  let sheet = book.getSheetByName("강의 공개 설정");
+  if (!sheet) {
+    sheet = book.insertSheet("강의 공개 설정");
+    sheet.getRange(1, 1, 1, 4).setValues([["강의 번호", "강의 제목", "공개 상태", "공개 예정일"]]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function readLessonSettings(sheet) {
+  if (sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues().map(row => ({
+    lessonId: Number(row[0]),
+    isPublic: row[2] !== "비공개",
+    releaseDate: row[3] instanceof Date ? Utilities.formatDate(row[3], Session.getScriptTimeZone(), "yyyy-MM-dd") : String(row[3] || "")
+  })).filter(item => item.lessonId);
+}
+
+function writeLessonSettings(sheet, settings) {
+  const titles = [
+    "인지활동지도사 1강 (준비 중)",
+    "인지활동지도사 2강 (준비 중)",
+    "인지활동지도사 3강 (준비 중)",
+    "인지활동지도사 4강 (준비 중)",
+    "인지활동지도사 5강 (준비 중)",
+    "인지활동지도사 6강 (준비 중)",
+    "인지활동지도사 7강 (준비 중)",
+    "인지활동지도사 8강 (준비 중)"
+  ];
+  const values = titles.map((title, i) => {
+    const item = settings.find(value => Number(value.lessonId) === i + 1) || {};
+    return [i + 1, title, item.isPublic === false ? "비공개" : "공개", item.releaseDate || ""];
+  });
+  if (sheet.getLastRow() > 1) sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).clearContent();
+  sheet.getRange(2, 1, values.length, 4).setValues(values);
+  sheet.getRange(2, 4, values.length, 1).setNumberFormat("yyyy-mm-dd");
+  sheet.autoResizeColumns(1, 4);
+}
+
+function findStudentRow(sheet, studentId) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 2;
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getDisplayValues().flat();
+  const index = ids.indexOf(String(studentId));
+  return index === -1 ? lastRow + 1 : index + 2;
+}
+
+function upsertStudent(sheet, data) {
+  const row = findStudentRow(sheet, data.studentId);
+  sheet.getRange(row, 1, 1, 6).setValues([[
+    String(data.studentId), data.name, "",
+    Number(data.overallProgress || 0) / 100, Number(data.completedLessons || 0),
+    new Date(data.lastAccessAt)
+  ]]);
+  sheet.getRange(row, 4).setNumberFormat("0%");
+  sheet.getRange(row, 6).setNumberFormat("yyyy-mm-dd hh:mm:ss");
+}
+
+function upsertProgress(sheet, data) {
+  const row = findStudentRow(sheet, data.studentId);
+  const lessons = Array.from({ length: 8 }, (_, i) => Number(data.lessonProgress?.[i] || 0) / 100);
+  sheet.getRange(row, 1, 1, 12).setValues([[
+    String(data.studentId), data.name, ...lessons,
+    Number(data.overallProgress || 0) / 100, new Date(data.lastAccessAt)
+  ]]);
+  sheet.getRange(row, 3, 1, 9).setNumberFormat("0%");
+  sheet.getRange(row, 12).setNumberFormat("yyyy-mm-dd hh:mm:ss");
+}
+
+function upsertExam(sheet, data) {
+  if (!sheet) throw new Error("시험 결과 시트를 찾을 수 없습니다.");
+  const book = sheet.getParent();
+  const answerKey = getExamAnswerKey(book);
+  const answers = Array.from({ length: answerKey.length }, (_, i) => {
+    const answer = Number(data.answers?.[i]);
+    return Number.isInteger(answer) && answer >= 0 && answer <= 3 ? answer : -1;
+  });
+  const correctCount = answers.filter((answer, i) => answer === answerKey[i].answerIndex).length;
+  const score = Math.round(correctCount / answerKey.length * 100);
+  const passStatus = score >= 80 ? "합격" : "불합격";
+  const headers = ["학번", "이름", "상태", "제출일시", ...answerKey.map(item => `${item.number}번 답`), "점수", "합격 여부"];
+  if (sheet.getMaxColumns() < headers.length) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), headers.length - sheet.getMaxColumns());
+  }
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  const row = findStudentRow(sheet, data.studentId);
+  sheet.getRange(row, 1, 1, headers.length).setValues([[
+    String(data.studentId), data.name, "제출 완료", new Date(data.submittedAt), ...answers,
+    score, passStatus
+  ]]);
+  sheet.getRange(row, 4).setNumberFormat("yyyy-mm-dd hh:mm:ss");
+}
+
+function getExamAnswerKey(book) {
+  const sheet = findSheetByNormalizedName(book, "시험정답");
+  if (!sheet || sheet.getLastRow() < 2) throw new Error("시험 정답표가 등록되지 않았습니다.");
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getDisplayValues()
+    .filter(row => String(row[0]).trim() !== "");
+  const answerKey = rows.map(row => ({
+    number: Number(row[0]),
+    answerIndex: Number(row[1]) - 1
+  }));
+  if (!answerKey.length || answerKey.some(item => !Number.isInteger(item.number) || item.answerIndex < 0 || item.answerIndex > 3)) {
+    throw new Error("시험 정답표의 문항 번호 또는 정답 값(1~4)을 확인해 주세요.");
+  }
+  return answerKey;
+}
