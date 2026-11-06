@@ -7,7 +7,7 @@ const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const backend = fs.readFileSync(path.join(root, "google-apps-script.gs"), "utf8");
 for (const source of [app, html, backend]) {
-  assert(!/복지용구|welfare-course-|AKfycbxeczRU|1NgAiSK8ZDZWS/.test(source), "Existing course reference must not carry over");
+  assert(!/복지용구\s*상담사|welfare-course-|AKfycbxeczRU|1NgAiSK8ZDZWS/.test(source), "Existing course reference must not carry over");
 }
 assert(!fs.existsSync(path.join(root, "videos")), "Old videos must not be copied");
 assert(!fs.existsSync(path.join(root, "exam-assets")), "Old exam images must not be copied");

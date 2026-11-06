@@ -2,11 +2,20 @@ const CONFIG = {
   passingScore: 80,
   // Google Apps Script를 배포한 뒤 발급된 /exec 주소를 입력하세요.
   resultsEndpoint: "https://script.google.com/macros/s/AKfycby46I1tYKekRChxO90cKI1v_FT0YqblYQDC3gdyBcMla8J5XIrfVIfnCyAOmEEb0_x_4w/exec",
-  // 강의명과 영상은 새 과정 자료가 준비되면 등록합니다.
-  lessons: Array.from({ length: 8 }, (_, i) => ({
+  // 영상은 새 과정 자료가 준비되면 등록합니다.
+  lessons: [
+    "고령사회 및 4차 산업(로봇, 기기, AI 등)",
+    "인지정서지원(신경해부학적 근거)",
+    "노인질환과 인지기능(경도인지장애 및 치매)",
+    "문제행동관리 및 신체활동지원(신체활동 필요성)",
+    "인지평가 실습(MMSE, MoCA-K, CIST)",
+    "인지 활동 및 실습(두뇌커뮤니케이션, 인지활동)",
+    "일상생활활동 관리 및 보호자 교육(복지용구 및 BPSD 관리)",
+    "주간보호센터 치매돌봄서비스 활동(인지활동프로그램)"
+  ].map((title, i) => ({
     id: i + 1,
-    title: `인지활동지도사 ${i + 1}강 (준비 중)`,
-    description: "강의 내용과 영상을 준비하고 있습니다.",
+    title,
+    description: "강의 영상을 준비하고 있습니다.",
     src: ""
   })),
   questions: window.EXAM_QUESTIONS || []
