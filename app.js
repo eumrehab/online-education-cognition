@@ -2,7 +2,7 @@ const CONFIG = {
   passingScore: 80,
   // Google Apps Script를 배포한 뒤 발급된 /exec 주소를 입력하세요.
   resultsEndpoint: "https://script.google.com/macros/s/AKfycby46I1tYKekRChxO90cKI1v_FT0YqblYQDC3gdyBcMla8J5XIrfVIfnCyAOmEEb0_x_4w/exec",
-  // 영상은 새 과정 자료가 준비되면 등록합니다.
+  // 차시별 웹 재생용 강의 영상입니다.
   lessons: [
     "고령사회 및 4차 산업(로봇, 기기, AI 등)",
     "인지정서지원(신경해부학적 근거)",
@@ -15,8 +15,8 @@ const CONFIG = {
   ].map((title, i) => ({
     id: i + 1,
     title,
-    description: "강의 영상을 준비하고 있습니다.",
-    src: ""
+    description: "강의 영상을 시청하면 수강 진도가 저장됩니다.",
+    src: `./videos/lesson-${String(i + 1).padStart(2, "0")}.mp4`
   })),
   questions: window.EXAM_QUESTIONS || []
 };
